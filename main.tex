@@ -167,7 +167,53 @@ without sacrificing per-category accuracy on the original evaluation set.
 \section{Related Work}
 \label{sec:related}
 
-TODO
+\paragraph{Image-to-3D generative models.}
+Large-scale image-to-3D systems have converged on a two-stage latent flow-matching design. TRELLIS~\cite{trellis}
+introduces the Structured 3D Latent (SLAT) representation, a sparse voxel grid carrying DINOv2 visual features
+extracted from multi-view renders; a rectified-flow transformer decodes SLAT tokens conditioned on a single image,
+with separate VAE heads producing Gaussian splats or textured meshes via FlexiCubes. TRELLIS v2~\cite{trellis2}
+replaces the multiview-supervised features with native O-Voxel representations --- a ``field-free'' sparse structure
+that handles open, non-manifold, and fully-enclosed surfaces --- achieving a $16\times$ spatial compression rate
+and adding explicit PBR material support across four billion parameters. SAM 3D~\cite{sam3d} extends the SLAT
+backbone to natural images with significant clutter and occlusion: a 1.2B-parameter Mixture-of-Transformers
+geometry model jointly estimates coarse shape and object layout, followed by a 600M-parameter sparse latent
+refinement model, all trained through a multi-stage synthetic-to-real flywheel aligned to human preference.
+Despite their differences, all three systems output objects normalised to a unit cube with no connection to
+physical dimensions. Our work keeps these frozen backbones intact and recovers the discarded metric scale
+via a lightweight head trained on real-world object datasets.
+
+\paragraph{Monocular metric depth and pointmap estimation.}
+Recovering scene depth in physical units from a single image has seen rapid recent progress.
+ZoeDepth~\cite{zoedepth} fine-tunes a relative-depth backbone with per-domain metric bins, enabling
+zero-shot metric depth across indoor and outdoor scenes.
+Metric3D~\cite{metric3d} achieves scale-aware depth through canonical camera normalization, enabling joint
+training on datasets with heterogeneous camera intrinsics.
+MoGe~\cite{moge} takes a different approach: instead of a depth map it predicts a dense $(x,y,z)$ pointmap
+in metres aligned to the camera frame, using an affine-invariant loss that generalises across object types and
+scene scales. MoGe is already integrated as a front-end in both SAM 3D and the SAM 3D Objects pipeline we
+build on: the pipeline extracts a scalar \texttt{pointmap\_scale} and a vertical offset \texttt{pointmap\_shift\_z}
+from the MoGe output to normalise spatial conditioning, and then discards the raw metric values. We show that
+routing these statistics into a supervised lightweight head eliminates the need for any additional inference pass.
+
+\paragraph{Category-level size and pose estimation.}
+NOCS~\cite{nocs} defines the normalised object coordinate space framework for recovering 6-DoF pose and
+metric dimensions for known object categories; the accompanying NOCS-Real275 benchmark is our primary
+evaluation set. A line of follow-on work~\cite{omninocs} scales NOCS-style annotation to larger vocabularies
+by unifying ground-truth size annotations across multiple datasets including Objectron~\cite{objectron} and
+ARKitScenes~\cite{arkitscenes}. All category-level methods share a common limitation: metric scale recovery
+is conditioned on category membership, and each category carries a learned or heuristic size prior. This
+dependence incurs a baseline MAPE of $\sim$10.9\% on NOCS-Real275 even with ground-truth category labels.
+Our method does not use category labels at inference time --- scale is derived from pointmap statistics and
+sparse latent features that are category-agnostic, enabling generalisation to objects absent from NOCS.
+
+\paragraph{Scale recovery in frozen generative models.}
+Adapter-style fine-tuning has proven effective for injecting new capabilities into large frozen models in both
+language~\cite{} and vision domains~\cite{}, but the objective has typically been semantic (e.g., style, content
+control) rather than metric. In 3D, methods such as Zero123, InstantMesh, and CRM recover geometry in
+normalised space; recovering metric scale from their outputs requires an independent calibration step.
+To our knowledge, no prior work injects a metric supervision signal into the latent decoder of a large image-to-3D
+generative model while preserving its frozen backbone weights. Our MetricScaleHead and cross-attention injection
+recipe fill this gap.
 
 
 \section{Method}
