@@ -228,7 +228,164 @@ recipe fill this gap.
 \section{Method}
 \label{sec:method}
 
-TODO
+\subsection{Overview}
+
+We build on the SAM 3D Objects image-to-3D pipeline~\cite{sam3d}, which chains a monocular geometry
+front-end (MoGe~\cite{moge}), a sparse structure (SS) generator that produces a coarse 3D occupancy
+field, and a spatial latent (SLAT) flow-matching decoder that refines geometry and texture into a
+Gaussian splat or mesh. All backbone parameters are frozen throughout our procedure.
+
+Our method inserts three new components. (i)~A \emph{MetricScaleHead} consumes MoGe pointmap
+statistics and SS latent features and produces a compact \emph{scale token}. (ii)~The scale token
+is appended to the SLAT decoder's conditioning sequence so that its cross-attention layers can
+attend to it; those layers are the only backbone weights that receive gradient updates during
+fine-tuning. (iii)~A \emph{MetricScaleDecoder} reads the SLAT refined latent together with
+the scale token and regresses log-space object dimensions $[\log W, \log H, \log D]$ in metres.
+Separately, an \emph{aspect-ratio loss} on the SS decoder's soft voxel occupancy provides a
+complementary shape-proportion signal that propagates back through the SS decoder's trainable
+weights (the SS generator/encoder stays frozen).
+
+\subsection{MetricScaleHead}
+\label{sec:head}
+
+The MetricScaleHead converts available metric signals into a single 1024-dimensional conditioning
+token compatible with the SLAT backbone's context space.
+
+\paragraph{Inputs.}
+The head takes four inputs that are already computed by the standard pipeline at inference time,
+requiring no additional forward passes:
+\begin{enumerate}
+  \item \textbf{Pooled SS shape latent.} The SS generator produces a $4096 \times 8$ sparse
+        latent; global average pooling yields an 8-dimensional summary of object morphology.
+  \item \textbf{SS scale features.} The SS generator's Mixture-of-Transformers (MoT) decoder
+        outputs a dedicated \texttt{scale} token --- a 3-dimensional vector of log-SSI (scale-,
+        shift-, and intensity-invariant) object extents supervised during pretraining with a
+        loss weight of 0.1. These three values carry full-image DINOv2 and pointmap context
+        already absorbed by the SS condition embedder.
+  \item \textbf{$\log(\texttt{pointmap\_scale})$.} MoGe outputs an affine-invariant
+        pointmap~\cite{moge}; the pipeline aligns it to the unit cube and records the
+        alignment scale factor. The logarithm of this factor is a scalar correlated with
+        the object's physical depth extent in the camera frame.
+  \item \textbf{$\texttt{pointmap\_shift\_z}$.} The vertical (Z-axis) shift of the alignment
+        in metres encodes the object's absolute distance from the camera, providing a complementary
+        metric anchor to the scale factor.
+\end{enumerate}
+The 13-dimensional concatenation $[8 + 3 + 1 + 1]$ is fed through a three-layer MLP with
+SiLU activations (widths $64 \to 128 \to 1024$), and a learned modality embedding
+$\boldsymbol{e}_\text{metric} \in \mathbb{R}^{1024}$ is added to the output:
+\begin{equation}
+  \mathbf{s} = \mathrm{MLP}\bigl([\bar{\mathbf{z}}_\text{SS};\, \mathbf{f}_\text{scale};\,
+    \log s_\text{pm};\, \Delta_z]\bigr) + \boldsymbol{e}_\text{metric} \;,
+  \label{eq:head}
+\end{equation}
+where $\bar{\mathbf{z}}_\text{SS}$ is the pooled SS latent, $\mathbf{f}_\text{scale}$ the
+SS scale token, $s_\text{pm}$ the pointmap alignment scale, and $\Delta_z$ the vertical shift.
+The modality embedding ensures that SLAT cross-attention can distinguish the injected scale
+token from the DINOv2 image and mask tokens that normally constitute the conditioning sequence.
+
+\subsection{Scale-Token Injection via Cross-Attention}
+\label{sec:injection}
+
+The SLAT backbone is a sparse rectified-flow transformer with 24 blocks, each containing a
+self-attention layer followed by a cross-attention layer that reads from the condition embedder's
+output. We inject the scale token $\mathbf{s} \in \mathbb{R}^{1 \times 1024}$ by appending it
+to the cross-attention context sequence without modifying any backbone code:
+\begin{equation}
+  \mathbf{C}' = \bigl[\mathbf{C}_\text{base};\, \mathbf{s}\bigr] \;,
+  \label{eq:inject}
+\end{equation}
+where $\mathbf{C}_\text{base}$ contains the standard DINOv2 image and mask tokens.
+This is implemented as a transparent proxy (\texttt{\_ScaleAugmentedEmbedderProxy}) that wraps
+the original condition embedder, so the SLAT generator's forward pass is unchanged.
+
+We selectively unfreeze the cross-attention sublayers (\texttt{cross\_attn} and \texttt{norm2})
+across all 24 blocks, totalling $\sim$100\,M of the more than one billion total SLAT parameters.
+All self-attention weights and feed-forward blocks remain frozen.
+
+\paragraph{fp32 cross-attention upcast.}
+The SLAT backbone runs in bfloat16. Preliminary experiments found that cross-attention keys
+and values computed from the unbounded scale token caused \textsc{NaN} overflow in bf16.
+We wrap each unfrozen \texttt{cross\_attn} and \texttt{norm2} module with an fp32 shim that
+casts inputs up before the forward pass and casts outputs back to bfloat16 afterwards. This
+keeps the training numerically stable without any change to the model architecture.
+
+\paragraph{CFG-style scale-token dropout.}
+During training, with probability $p=0.1$ the scale token injected into the SLAT context
+sequence is replaced with a zero vector (while the unmodified token is still passed to
+MetricScaleDecoder). This mirrors classifier-free guidance (CFG) dropout from TRELLIS~\cite{trellis}
+and encourages the cross-attention layers to function gracefully when the scale token
+is absent, reducing overfitting to its magnitude.
+
+\subsection{MetricScaleDecoder}
+\label{sec:decoder}
+
+After the SLAT flow-matching forward pass, the refined sparse latent provides per-voxel features
+$\mathbf{Z} \in \mathbb{R}^{N_v \times 8}$ (where $N_v$ is the number of active voxels). A
+scatter mean pools these features per batch element, yielding an 8-dimensional geometry
+summary. This is concatenated with a 16-dimensional linear projection of the scale token:
+\begin{equation}
+  \hat{\mathbf{d}} = \mathrm{MLP}\bigl([\overline{\mathbf{Z}};\, \mathbf{W}_s \mathbf{s}]\bigr)
+    \in \mathbb{R}^3 \;,
+  \label{eq:decoder}
+\end{equation}
+where $\mathbf{W}_s \in \mathbb{R}^{16 \times 1024}$. The three output logits are interpreted as
+$\hat{\mathbf{d}} = [\log \hat{W}, \log \hat{H}, \log \hat{D}]$ and exponentiated at inference
+time to produce metric dimensions in metres. The log-space parameterisation keeps predictions
+positive by construction and normalises the target distribution across object scales spanning
+two orders of magnitude.
+
+\subsection{Aspect-Ratio Supervision via Soft Voxel Occupancy}
+\label{sec:ratio}
+
+The SS decoder outputs a $64^3$ soft occupancy volume (pre-sigmoid logits) as a byproduct of
+generating the coarse structure. We exploit this to provide a complementary shape-proportion
+signal that does not require a metric anchor --- only the \emph{relative} extents of the predicted
+shape. For each axis $a \in \{x, y, z\}$ we compute the marginal occupancy distribution
+$p_a$ by summing over the other two axes, then derive a differentiable per-axis extent:
+\begin{equation}
+  \sigma_a = \sqrt{\mathrm{Var}_{p_a}[i_a]} \;,
+  \label{eq:sigma}
+\end{equation}
+where $i_a$ are voxel indices along axis $a$. To handle the axis-permutation ambiguity (the
+canonical voxel frame need not align with physical width/height/depth), we rank-sort
+$[\sigma_x, \sigma_y, \sigma_z]$ and $[W, H, D]$ in descending order before comparing.
+The aspect-ratio loss is a scale-invariant smooth-L1 on mean-centred log extents:
+\begin{equation}
+  \mathcal{L}_\text{AR} = \mathrm{SmoothL1}\!\left(
+    \log \boldsymbol{\sigma}_\downarrow - \overline{\log \boldsymbol{\sigma}_\downarrow},\;
+    \log \mathbf{d}_\downarrow - \overline{\log \mathbf{d}_\downarrow}
+  \right) \;,
+  \label{eq:ratio}
+\end{equation}
+where $\downarrow$ denotes rank-sorted descending. Subtracting the mean removes the global
+scale, so the loss penalises only shape-proportion errors. To receive gradients, the SS
+decoder's head weights are unfrozen; the SS generator and encoder remain frozen.
+
+\subsection{Training Objective and Optimisation}
+\label{sec:training}
+
+The primary objective is a smooth-L1 loss on predicted vs.\ ground-truth log dimensions:
+\begin{equation}
+  \mathcal{L} = \mathrm{SmoothL1}(\hat{\mathbf{d}},\, \log \mathbf{d}_\text{GT})
+    + \lambda_\text{AR}\,\mathcal{L}_\text{AR} \;,
+  \label{eq:loss}
+\end{equation}
+with $\lambda_\text{AR} = 0.05$ in all experiments. The smooth-L1 kernel is less sensitive to
+outlier objects than MSE while retaining a quadratic regime near zero for stable convergence.
+
+\paragraph{Optimiser and learning rates.}
+MetricScaleHead and MetricScaleDecoder are trained with Adam at $\text{lr} = 10^{-4}$, weight
+decay $10^{-4}$. The unfrozen SLAT cross-attention weights use a separate parameter group
+at $\text{lr} = 10^{-6}$, linearly warmed up from zero over 500 steps to prevent
+catastrophic interference with the pretrained attention weights at the start of fine-tuning.
+Gradient norms are clipped per parameter group using an adaptive percentile-based clipper.
+
+\paragraph{Warm-start and dataset.}
+All experiments warm-start from a checkpoint trained on the NOCS-Real275 subset of
+OmniNOCS~\cite{omninocs}. Mixed-source training extends to Objectron~\cite{objectron} and
+ARKitScenes~\cite{arkitscenes} with a per-source cap of 30,000 records and balanced
+sampling (WeightedRandomSampler with weight $\propto 1/|\text{source}|$) to prevent any
+single dataset from dominating the gradient signal.
 
 
 \section{Experiments}
