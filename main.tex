@@ -182,29 +182,38 @@ Despite their differences, all three systems output objects normalised to a unit
 physical dimensions. Our work keeps these frozen backbones intact and recovers the discarded metric scale
 via a lightweight head trained on real-world object datasets.
 
-\paragraph{Monocular metric depth and pointmap estimation.}
-Recovering scene depth in physical units from a single image has seen rapid recent progress.
+\paragraph{Monocular geometry and metric depth estimation.}
+Recovering scene geometry in physical units from a single image has seen rapid recent progress.
 ZoeDepth~\cite{zoedepth} fine-tunes a relative-depth backbone with per-domain metric bins, enabling
 zero-shot metric depth across indoor and outdoor scenes.
-Metric3D~\cite{metric3d} achieves scale-aware depth through canonical camera normalization, enabling joint
-training on datasets with heterogeneous camera intrinsics.
-MoGe~\cite{moge} takes a different approach: instead of a depth map it predicts a dense $(x,y,z)$ pointmap
-in metres aligned to the camera frame, using an affine-invariant loss that generalises across object types and
-scene scales. MoGe is already integrated as a front-end in both SAM 3D and the SAM 3D Objects pipeline we
-build on: the pipeline extracts a scalar \texttt{pointmap\_scale} and a vertical offset \texttt{pointmap\_shift\_z}
-from the MoGe output to normalise spatial conditioning, and then discards the raw metric values. We show that
-routing these statistics into a supervised lightweight head eliminates the need for any additional inference pass.
+Metric3D~\cite{metric3d} achieves scale-aware depth through a canonical camera normalization module that
+reconciles training on datasets with heterogeneous camera intrinsics.
+MoGe~\cite{moge} reframes the problem as \emph{affine-invariant} pointmap prediction: it estimates a dense
+$(x,y,z)$ field using a robust optimal-alignment loss, achieving state-of-the-art relative geometry accuracy
+while deliberately leaving global scale and shift unconstrained. MoGe-2~\cite{moge2} extends this by
+appending a lightweight MLP head on the ViT CLS token to predict a global metric scale factor, enabling
+accurate metric geometry without sacrificing relative geometry quality. MoGe is integrated as a front-end in
+both SAM 3D and the SAM 3D Objects pipeline we build on: the pipeline computes alignment statistics
+(\texttt{pointmap\_scale}, \texttt{pointmap\_shift\_z}) to map MoGe's output into a unit-cube conditioning
+space --- and then discards these normalization factors before the generative decoder runs. Our key
+observation is that these statistics are correlated with the object's true physical extent, and routing them
+directly into a supervised scale head recovers metric dimensions without any additional inference pass.
 
 \paragraph{Category-level size and pose estimation.}
 NOCS~\cite{nocs} defines the normalised object coordinate space framework for recovering 6-DoF pose and
-metric dimensions for known object categories; the accompanying NOCS-Real275 benchmark is our primary
-evaluation set. A line of follow-on work~\cite{omninocs} scales NOCS-style annotation to larger vocabularies
-by unifying ground-truth size annotations across multiple datasets including Objectron~\cite{objectron} and
-ARKitScenes~\cite{arkitscenes}. All category-level methods share a common limitation: metric scale recovery
-is conditioned on category membership, and each category carries a learned or heuristic size prior. This
-dependence incurs a baseline MAPE of $\sim$10.9\% on NOCS-Real275 even with ground-truth category labels.
-Our method does not use category labels at inference time --- scale is derived from pointmap statistics and
-sparse latent features that are category-agnostic, enabling generalisation to objects absent from NOCS.
+metric bounding-box dimensions for known object categories; the accompanying NOCS-Real275 benchmark
+(6 categories, 7k images) is our primary evaluation set.
+OmniNOCS~\cite{omninocs} substantially extends the NOCS paradigm, unifying canonical 3D bounding-box
+annotations across ten data sources --- including NOCS-Real275, Objectron~\cite{objectron},
+ARKitScenes~\cite{arkitscenes}, KITTI, nuScenes, and Hypersim --- to produce a dataset of 97 object
+categories and 380k images, twenty times the class coverage and 200 times the instance count of
+prior NOCS datasets. The accompanying NOCSformer model predicts NOCS coordinates, instance masks,
+and metric 3D boxes from 2D detections via a class-agnostic ViT backbone, generalising to unseen datasets
+without class-specific heads. All category-level methods share a common limitation: metric scale recovery
+is implicitly conditioned on category-level size priors encoded during training, which incurs a baseline MAPE
+of $\sim$10.9\% on NOCS-Real275 even with ground-truth category labels. Our method uses no category
+labels at inference time --- scale is inferred from pointmap normalization statistics and sparse latent
+features that are category-agnostic --- and is trained on the same OmniNOCS sources.
 
 \paragraph{Scale recovery in frozen generative models.}
 Adapter-style fine-tuning has proven effective for injecting new capabilities into large frozen models in both
