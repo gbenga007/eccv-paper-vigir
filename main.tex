@@ -146,9 +146,10 @@ backbone (the shape branch stays frozen) --- so the model learns a per-instance
 \emph{correction to its own anchor}. This yields our best model: \textbf{17.6\%} mean
 per-axis dimension error (10.3\% median) across NOCS-Real275, Objectron, and
 ARKitScenes, approaching the oracle floor of the decomposition ($\sim$15\%). On
-NOCS-Real275, the fine-tuned model reaches 4.6\% --- \emph{below} the 6.7\% raw
-ground-truth-anchor oracle --- direct evidence that the model corrects anchor bias
-rather than merely inheriting the anchor. The same delegation mechanism supports full
+NOCS-Real275, the fine-tuned model's isotropic size error (3.9\% median) falls
+\emph{below} the 6.7\% the same frozen model achieves with a ground-truth depth
+pointmap --- direct evidence that the model corrects anchor bias rather than merely
+inheriting the anchor. The same delegation mechanism supports full
 metric 3D bounding boxes: with predicted pose, we obtain 73.1 mAP@IoU$_{0.25}$ on
 NOCS-Real275 from RGB alone, surpassing RGB-only baselines
 (NOCSformer 43.5~\cite{omninocs}, Cube R-CNN 14.9~\cite{omni3d}).
@@ -469,12 +470,13 @@ does not.}
 The anchor swap alone (row 2$\to$3) improves overall error by 2.1 points, concentrated on
 room-scale ARKitScenes (34.3$\to$28.6) --- exactly where the affine anchor's bias was
 largest. Layout-branch SFT (row 3$\to$4) contributes a further 2.6 points and brings every
-source within a few points of the decomposition's oracle floor. Most tellingly,
-\textbf{NOCS reaches 4.6\%, below the 6.7\% raw ground-truth-anchor oracle}
-(Table~\ref{tab:oracle}): the fine-tuned model is not merely inheriting its anchor --- it
-corrects the anchor's per-instance bias using appearance and shape context, which the
-depth network alone cannot do. The residual gap to the floor sits in Objectron (close-range
-anchor bias) and ARKitScenes category tails (Sec.~\ref{sec:failure}).
+source within a few points of the decomposition's oracle floor. Most tellingly, on the
+matched isotropic-median statistic of Table~\ref{tab:oracle}, \textbf{the fine-tuned
+model reaches 3.9\% on NOCS --- below the 6.7\% the same frozen model achieves with a
+ground-truth depth pointmap}: it is not merely inheriting its anchor but correcting the
+anchor's per-instance bias using appearance and shape context, which the depth network
+alone cannot do. The residual gap to the floor sits in Objectron (close-range anchor
+bias) and ARKitScenes category tails (Sec.~\ref{sec:failure}).
 
 \paragraph{Does the model correct the anchor, or just inherit it?}
 We test this with a pre-registered analysis: on the same 422 held-out instances, same
@@ -484,10 +486,11 @@ $\log(\text{pred}/\text{GT})$ on log object size. The raw anchor has a strong
 size-dependent bias --- slope $-0.38$, over-measuring the two smallest size quartiles by
 $1.35\times$ and $1.70\times$ (median ratio) --- which a global calibration constant cannot
 remove (44.6\% MAPE after removing the best single constant). The fine-tuned model
-\textbf{flattens the slope to $-0.07$} and reaches 16.7\% MAPE, with per-source median
-ratios of 0.97/0.98/1.02 (NOCS/Objectron/ARKitScenes) versus the raw anchor's
-1.16/1.76/0.91. Re-calibrating the fine-tuned model changes nothing (16.9\%), \ie its
-residual is no longer a systematic bias. The model has learned a per-instance,
+\textbf{flattens the slope to $-0.07$} and reaches 16.7\% MAPE --- a 27.9-point
+improvement over the calibrated anchor (95\% paired-bootstrap CI $[22.8, 33.5]$) --- with
+per-source median ratios of 0.97/0.98/1.02 (NOCS/Objectron/ARKitScenes) versus the raw
+anchor's 1.16/1.76/0.91. Re-calibrating the fine-tuned model changes nothing (16.9\%),
+\ie its residual is no longer a systematic bias. The model has learned a per-instance,
 size-dependent correction that no constant --- and hence no post-hoc calibration of the
 depth network --- can express. This is the sense in which the contribution is a
 \emph{model}, not a depth swap.
