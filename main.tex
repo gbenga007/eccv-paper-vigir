@@ -75,13 +75,14 @@ blind to physical size. We show this framing is wrong for depth-conditioned
 generators: the generator predicts a \emph{dimensionless} object--scene scale
 ratio, and metric scale is \emph{delegated} to the conditioning pointmap. On the
 same frozen SAM~3D Objects model, substituting a ground-truth metric pointmap for
-the default affine-invariant one drops isotropic object-size error from
-71.5\% to 6.7\% --- with no new parameters. Guided by this analysis, we recover
+the default affine-invariant one drops median isotropic object-size error from
+75.2\% to 6.7\% --- with no new parameters. Guided by this analysis, we recover
 metric object dimensions from a \emph{single RGB image}: we swap the anchor
 to a monocular metric estimator (MoGe-2) and lightly fine-tune the layout pathway,
-reaching 17.6\% mean per-axis dimension error across three real-world sources
-and 73.1 mAP@IoU$_{0.25}$ on NOCS-Real275 --- surpassing RGB-only baselines and,
-on clean data, exceeding the accuracy of the raw anchor itself. Unlike prior
+reaching 17.6\% mean per-axis dimension error across three real-world sources ---
+on clean data exceeding the accuracy of the raw anchor itself --- while a jointly
+supervised variant of the same recipe reaches 73.1 mAP@IoU$_{0.25}$ on
+NOCS-Real275, surpassing RGB-only baselines. Unlike prior
 metric layout evaluations, no ground-truth depth is used at training or inference.
 \keywords{Metric scale \and Image-to-3D generation \and Monocular geometry}
 \end{abstract}
@@ -119,7 +120,7 @@ meaningless; this, not a missing capability, is why outputs appear non-metric.
 
 Three controlled experiments substantiate and sharpen this claim, all on the same frozen
 model. \textbf{(i)~Oracle:} feeding a ground-truth metric pointmap instead of the MoGe
-default reduces median isotropic size error on NOCS-Real275 from 71.5\% to 6.7\% ---
+default reduces median isotropic size error on NOCS-Real275 from 75.2\% to 6.7\% ---
 zero trained parameters (Sec.~\ref{sec:oracle}). \textbf{(ii)~Error decomposition:}
 across three real-world sources, applying a perfect \emph{isotropic} correction to the
 model's predicted dimensions removes nearly all cross-source error (per-axis MAPE
@@ -150,9 +151,9 @@ NOCS-Real275, the fine-tuned model's isotropic size error (3.9\% median) falls
 \emph{below} the 6.7\% the same frozen model achieves with a ground-truth depth
 pointmap --- direct evidence that the model corrects anchor bias rather than merely
 inheriting the anchor. The same delegation mechanism supports full
-metric 3D bounding boxes: with predicted pose, we obtain 73.1 mAP@IoU$_{0.25}$ on
-NOCS-Real275 from RGB alone, surpassing RGB-only baselines
-(NOCSformer 43.5~\cite{omninocs}, Cube R-CNN 14.9~\cite{omni3d}).
+metric 3D bounding boxes: a variant of the recipe supervised jointly on pose and size
+obtains 73.1 mAP@IoU$_{0.25}$ on NOCS-Real275 from RGB alone, surpassing RGB-only
+baselines (NOCSformer 43.5~\cite{omninocs}, Cube R-CNN 14.9~\cite{omni3d}).
 
 A practical consequence we highlight for metric scene understanding: prior metric layout
 evaluations of image-to-3D systems --- including SAM 3D's own --- use ground-truth depth
@@ -164,7 +165,7 @@ RGB image. This is the setting in which such systems will actually be deployed.
 \begin{itemize}
   \item \textbf{A delegation analysis of metric scale} in depth-conditioned image-to-3D
         generation: the mechanism (Sec.~\ref{sec:mechanism}), an oracle experiment
-        isolating the depth source (71.5\%$\to$6.7\% with zero trained parameters), and
+        isolating the depth source (75.2\%$\to$6.7\% with zero trained parameters), and
         an error decomposition showing a single isotropic anchor factor dominates
         cross-source dimension error.
   \item \textbf{A transfer-asymmetry result}: pointmap-anchored size transfers to unseen
@@ -174,8 +175,8 @@ RGB image. This is the setting in which such systems will actually be deployed.
         the layout pathway --- that needs no ground-truth depth, no new architecture, and
         no backbone retraining, evaluated as an ablation ladder isolating each ingredient.
   \item \textbf{Evidence the model corrects its anchor}: post-SFT accuracy on clean data
-        exceeds the raw metric-anchor oracle, and full-box mAP corroborates that the
-        recovered dimensions are correctly placed in 3D.
+        exceeds the raw metric-anchor oracle, and a jointly supervised variant shows the
+        delegation mechanism yields correctly placed full metric 3D boxes.
 \end{itemize}
 
 \section{Related Work}
