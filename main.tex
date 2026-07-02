@@ -88,6 +88,21 @@ metric layout evaluations, no ground-truth depth is used at training or inferenc
 \end{abstract}
 
 
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/teaser.pdf}
+  \caption{\textbf{Metric scale is delegated to the depth anchor.} Left: a
+  depth-conditioned image-to-3D generator predicts only a \emph{dimensionless}
+  object--scene ratio $\tilde{\mathbf{s}}$; physical units enter exclusively through the
+  scene scale $s_\text{scene}$ of the conditioning pointmap
+  (Eq.~\ref{eq:delegation}). Swapping the anchor on the \emph{same frozen model} moves
+  median size error from 75.2\% (affine MoGe) to 6.7\% (ground-truth depth) with zero
+  trained parameters (Table~\ref{tab:oracle}). Right: exploiting delegation --- a metric
+  monocular anchor plus light layout fine-tuning approaches the oracle
+  isotropic-correction floor (Table~\ref{tab:ladder}), using no ground-truth depth.}
+  \label{fig:teaser}
+\end{figure}
+
 \section{Introduction}
 \label{sec:intro}
 
@@ -110,10 +125,10 @@ or expensive backbone retraining. This paper argues for a different reading.
 Depth-conditioned image-to-3D pipelines condition generation on a pointmap --- a dense
 per-pixel field of $(x,y,z)$ coordinates --- and normalise the object pose into
 scale-shift-invariant (SSI) space using a robust scene statistic of that pointmap.
-We show (Sec.~\ref{sec:analysis}) that the pose decoder of SAM 3D Objects
-\emph{already} inverts this normalisation at inference: predicted object size is the
-product of a dimensionless, learned object--scene ratio and the input pointmap's scene
-scale. The generator never learns metric scale because it never has to --- scale is
+We show (Sec.~\ref{sec:analysis}, Fig.~\ref{fig:teaser}) that the pose decoder of SAM 3D
+Objects \emph{already} inverts this normalisation at inference: predicted object size is
+the product of a dimensionless, learned object--scene ratio and the input pointmap's
+scene scale. The generator never learns metric scale because it never has to --- scale is
 \emph{delegated} to whatever depth anchor conditions the model. The default anchor
 (MoGe~\cite{moge}) is deliberately \emph{affine-invariant}, so the delegated scale is
 meaningless; this, not a missing capability, is why outputs appear non-metric.
