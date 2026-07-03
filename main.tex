@@ -357,6 +357,21 @@ to itself.
 \section{Method: Exploiting Delegation}
 \label{sec:method}
 
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/pipeline.pdf}
+  \caption{\textbf{Pipeline.} A single RGB image and instance mask condition two paths: the
+  frozen MoGe-2 anchor supplies the metric pointmap $\mathbf{P}$ and scene scale
+  $s_\text{scene}$ (swappable --- the delegation slot), while the Mixture-of-Transformers
+  geometry model predicts canonical shape (frozen branch) and dimensionless layout
+  (trained branch). The trained MetricScaleHead summarises shape and anchor statistics
+  into a scale token injected into the SLAT refiner's cross-attention (the only trained
+  SLAT weights); the MetricScaleDecoder reads the refined latent into metric $[W,H,D]$.
+  All metric outputs inherit their units from the anchor via
+  $\mathbf{d}=\mathbf{c}\odot\tilde{\mathbf{s}}\cdot s_\text{scene}$.}
+  \label{fig:pipeline}
+\end{figure}
+
 \subsection{Metric anchor swap}
 \label{sec:anchorswap}
 
@@ -538,24 +553,27 @@ official symmetry-aware NOCS mAP on NOCS-Real275, RGB-only at inference.
 \centering
 \caption{3D-box mAP on NOCS-Real275. Top: the depth-source A/B on a fixed trained model
 (8 frames): the anchor moves mAP from zero to competitive. Bottom: full-set evaluation
-(150 frames). RGB-only = no depth sensor input at inference. \textsuperscript{$\ast$}Uses
-depth input at inference. Baselines from~\cite{omninocs}.}
+(150 frames). ``Sees NOCS'' = whether NOCS-Real275 was in the method's training data:
+the Cube R-CNN and NOCSformer rows are \emph{cross-dataset transfer} results
+from~\cite{omninocs} (NOCS held out), so they are directly comparable only to our
+NOCS-held-out row. \textsuperscript{$\ast$}Uses depth input at inference.}
 \label{tab:map}
-\setlength{\tabcolsep}{6pt}
-\begin{tabular}{llcc}
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{llccc}
 \toprule
- & Method / condition & mAP@0.25 & mAP@0.5 \\
+ & Method / condition & Sees NOCS & mAP@0.25 & mAP@0.5 \\
 \midrule
 \multirow{3}{*}{\shortstack[l]{Depth-source A/B\\(same trained model)}}
- & MoGe anchor (affine)      & 0.0  & 0.0 \\
- & MoGe-2 anchor             & 40.3 & 4.9 \\
- & GT-depth anchor (oracle)  & 89.8 & 17.6 \\
+ & MoGe anchor (affine)      & \checkmark & 0.0  & 0.0 \\
+ & MoGe-2 anchor             & \checkmark & 40.3 & 4.9 \\
+ & GT-depth anchor (oracle)  & \checkmark & 89.8 & 17.6 \\
 \midrule
-\multirow{4}{*}{\shortstack[l]{Full set,\\150 frames}}
- & Cube R-CNN~\cite{omni3d} (RGB)        & 14.9 & 4.1 \\
- & NOCSformer~\cite{omninocs} (RGB)      & 43.5 & 10.6 \\
- & NOCS~\cite{nocs} (RGB-D)\textsuperscript{$\ast$} & 79.6 & 72.4 \\
- & Ours, joint layout SFT (RGB)          & \textbf{73.1} & 8.9 \\
+\multirow{5}{*}{\shortstack[l]{Full set,\\150 frames}}
+ & Cube R-CNN~\cite{omni3d} (RGB)        & --- & 14.9 & 4.1 \\
+ & NOCSformer~\cite{omninocs} (RGB)      & --- & 43.5 & 10.6 \\
+ & NOCS~\cite{nocs} (RGB-D)\textsuperscript{$\ast$} & \checkmark & 79.6 & 72.4 \\
+ & Ours, joint layout SFT (RGB)          & \checkmark & \textbf{73.1} & 8.9 \\
+ & Ours, NOCS held out (RGB)             & --- & \todo & \todo \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -564,11 +582,14 @@ The A/B (top of Table~\ref{tab:map}) is the delegation mechanism seen through mA
 affine anchor the boxes are metrically misplaced (53\% translation error $\Rightarrow$ 0
 mAP); the monocular metric anchor recovers 40.3; the GT anchor exceeds the
 \emph{depth-supervised} NOCS baseline at IoU 0.25. Our jointly fine-tuned model reaches
-\textbf{73.1 mAP@0.25 from RGB alone} --- 30 points above the best RGB-only baseline and
-approaching the RGB-D method --- with median translation error 8.3\,cm. mAP@0.5 remains
-bounded by that $\sim$8\,cm translation precision, which our analysis attributes to the
-monocular anchor's depth accuracy, not to size (an oracle study shows size errors below
-30\% do not affect mAP@0.5 given correct pose).
+\textbf{73.1 mAP@0.25 from RGB alone}, approaching the depth-input NOCS method, with
+median translation error 8.3\,cm. We note a protocol asymmetry the table makes explicit:
+the Cube R-CNN and NOCSformer numbers are cross-dataset \emph{transfer} results (NOCS
+held out from their training), whereas our 73.1 model saw $\sim$3.3k NOCS records; the
+matched comparison is our NOCS-held-out row, trained on Objectron+ARKitScenes only.
+mAP@0.5 remains bounded by $\sim$8\,cm translation precision, which our analysis
+attributes to the monocular anchor's depth accuracy, not to size (an oracle study shows
+size errors below 30\% do not affect mAP@0.5 given correct pose).
 
 The dimension model (Table~\ref{tab:ladder}) and the box model here are two fine-tunes of
 the same backbone: the mAP model co-trains the layout branch against pose+size targets,
