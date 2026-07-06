@@ -82,7 +82,8 @@ to a monocular metric estimator (MoGe-2) and lightly fine-tune the layout pathwa
 reaching 17.6\% mean per-axis dimension error across three real-world sources ---
 on clean data exceeding the accuracy of the raw anchor itself --- while a jointly
 supervised variant of the same recipe reaches 73.1 mAP@IoU$_{0.25}$ on
-NOCS-Real275, surpassing RGB-only baselines. Unlike prior
+NOCS-Real275 (61.1 in cross-dataset transfer with NOCS held out), surpassing
+RGB-only baselines. Unlike prior
 metric layout evaluations, no ground-truth depth is used at training or inference.
 \keywords{Metric scale \and Image-to-3D generation \and Monocular geometry}
 \end{abstract}
@@ -168,7 +169,9 @@ pointmap --- direct evidence that the model corrects anchor bias rather than mer
 inheriting the anchor. The same delegation mechanism supports full
 metric 3D bounding boxes: a variant of the recipe supervised jointly on pose and size
 obtains 73.1 mAP@IoU$_{0.25}$ on NOCS-Real275 from RGB alone, surpassing RGB-only
-baselines (NOCSformer 43.5~\cite{omninocs}, Cube R-CNN 14.9~\cite{omni3d}).
+baselines (NOCSformer 43.5~\cite{omninocs}, Cube R-CNN 14.9~\cite{omni3d}), and still
+transfers at 61.1 when NOCS is held out from training entirely --- the matched
+cross-dataset comparison.
 
 A practical consequence we highlight for metric scene understanding: prior metric layout
 evaluations of image-to-3D systems --- including SAM 3D's own --- use ground-truth depth
@@ -556,24 +559,31 @@ official symmetry-aware NOCS mAP on NOCS-Real275, RGB-only at inference.
 (150 frames). ``Sees NOCS'' = whether NOCS-Real275 was in the method's training data:
 the Cube R-CNN and NOCSformer rows are \emph{cross-dataset transfer} results
 from~\cite{omninocs} (NOCS held out), so they are directly comparable only to our
-NOCS-held-out row. \textsuperscript{$\ast$}Uses depth input at inference.}
+NOCS-held-out and frozen rows. ``Frozen'' rows use the released model with zero
+fine-tuning, changing only the anchor; all ``Ours'' rows are RGB-only at inference.
+Full-set rows use a fixed 150-frame subset of
+the 2{,}754-frame Real275 test set (seed 42; 896 instances, $\approx$5\%), identical
+across our rows. \textsuperscript{$\ast$}Uses depth input at inference.}
 \label{tab:map}
-\setlength{\tabcolsep}{5pt}
+\small
+\setlength{\tabcolsep}{3pt}
 \begin{tabular}{llccc}
 \toprule
  & Method / condition & Sees NOCS & mAP@0.25 & mAP@0.5 \\
 \midrule
-\multirow{3}{*}{\shortstack[l]{Depth-source A/B\\(same trained model)}}
+\multirow{3}{*}{\shortstack[l]{Depth-source A/B\\(same trained\\model, 8 frames)}}
  & MoGe anchor (affine)      & \checkmark & 0.0  & 0.0 \\
  & MoGe-2 anchor             & \checkmark & 40.3 & 4.9 \\
  & GT-depth anchor (oracle)  & \checkmark & 89.8 & 17.6 \\
 \midrule
-\multirow{5}{*}{\shortstack[l]{Full set,\\150 frames}}
+\multirow{7}{*}{\shortstack[l]{Full set,\\150 frames}}
  & Cube R-CNN~\cite{omni3d} (RGB)        & --- & 14.9 & 4.1 \\
  & NOCSformer~\cite{omninocs} (RGB)      & --- & 43.5 & 10.6 \\
  & NOCS~\cite{nocs} (RGB-D)\textsuperscript{$\ast$} & \checkmark & 79.6 & 72.4 \\
- & Ours, joint layout SFT (RGB)          & \checkmark & \textbf{73.1} & 8.9 \\
- & Ours, NOCS held out (RGB)             & --- & \todo & \todo \\
+ & Ours frozen, affine anchor            & --- & 0.1  & 0.0 \\
+ & Ours frozen, MoGe-2 anchor            & --- & 57.7 & 3.0 \\
+ & Ours, NOCS held out                   & --- & 61.1 & 1.0 \\
+ & Ours, joint layout SFT                & \checkmark & \textbf{73.1} & 8.9 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -581,12 +591,20 @@ NOCS-held-out row. \textsuperscript{$\ast$}Uses depth input at inference.}
 The A/B (top of Table~\ref{tab:map}) is the delegation mechanism seen through mAP: with the
 affine anchor the boxes are metrically misplaced (53\% translation error $\Rightarrow$ 0
 mAP); the monocular metric anchor recovers 40.3; the GT anchor exceeds the
-\emph{depth-supervised} NOCS baseline at IoU 0.25. Our jointly fine-tuned model reaches
+\emph{depth-supervised} NOCS baseline at IoU 0.25. The full-set frozen rows extend the
+A/B to the released model: swapping the affine anchor for MoGe-2 lifts mAP@0.25 from 0.1
+to 57.7 \emph{with no training at all} --- already above the RGB-only transfer baselines.
+Our jointly fine-tuned model reaches
 \textbf{73.1 mAP@0.25 from RGB alone}, approaching the depth-input NOCS method, with
 median translation error 8.3\,cm. We note a protocol asymmetry the table makes explicit:
 the Cube R-CNN and NOCSformer numbers are cross-dataset \emph{transfer} results (NOCS
 held out from their training), whereas our 73.1 model saw $\sim$3.3k NOCS records; the
 matched comparison is our NOCS-held-out row, trained on Objectron+ARKitScenes only.
+That model reaches \textbf{61.1 mAP@0.25} despite never seeing a NOCS image ---
+surpassing both NOCSformer's transfer result (43.5) and the zero-fine-tuning anchor swap
+(57.7) --- with translation transferring intact (median 10.3\,cm, matching the
+NOCS-trained model on the same frames); its mAP@0.5 (1.0) drops below the NOCS-trained
+model's, as the size and rotation read-heads were never calibrated to NOCS.
 mAP@0.5 remains bounded by $\sim$8\,cm translation precision, which our analysis
 attributes to the monocular anchor's depth accuracy, not to size (an oracle study shows
 size errors below 30\% do not affect mAP@0.5 given correct pose).
@@ -597,6 +615,17 @@ while the dimension model trains it only through the metric-head loss, which we 
 drifts the frozen pose read-heads' translation calibration ($\sim$0.5\,m error). We
 therefore report each model on its own task and leave a single jointly-supervised
 checkpoint --- warm-started from the dimension model --- to future work.
+
+\paragraph{Post-hoc geometric refinement obeys the same logic.}
+The released pipeline includes a render-and-compare pose refinement step (mask-IoU
+gated). On a fixed 8-frame subset (51 instances) it behaves exactly as delegation
+predicts: it \emph{helps} the frozen model with the metric anchor ($+4.1$ mAP@0.25,
+38.5$\to$42.6), does nothing with the affine anchor (0.0 before and after), and
+\emph{hurts} the fine-tuned model ($-6.8$, 67.4$\to$60.6; 25 of 51 translations worsen).
+Refinement pulls the pose toward the anchor-and-mask evidence, which helps while
+translation is anchor-limited but re-imports the systematic anchor bias that the
+fine-tuned translation pathway has already corrected --- the geometric counterpart of
+the calibration result in Sec.~\ref{sec:ladder}.
 
 \subsection{Failure modes and limitations}
 \label{sec:failure}
